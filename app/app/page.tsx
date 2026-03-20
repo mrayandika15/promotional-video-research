@@ -159,6 +159,8 @@ export default function Home() {
               musicUrl={audio.url}
               sceneTexts={sceneTexts}
               generated={generated}
+              slots={slots}
+              audio={audio}
             />
           </div>
         </div>

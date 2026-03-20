@@ -3,13 +3,15 @@
 import { useRef, useState, useCallback } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { PromotionalVideo } from "../remotion/PromotionalVideo";
-import type { PromotionalVideoProps, SceneText } from "../remotion/types";
+import type { PromotionalVideoProps, SceneText, VideoSlot, AudioSlot } from "../remotion/types";
 
 interface VideoPreviewProps {
   videos: PromotionalVideoProps["videos"];
   musicUrl: string | null;
   sceneTexts: SceneText[];
   generated: boolean;
+  slots: VideoSlot[];
+  audio: AudioSlot;
 }
 
 export default function VideoPreview({
@@ -17,104 +19,69 @@ export default function VideoPreview({
   musicUrl,
   sceneTexts,
   generated,
+  slots,
+  audio,
 }: VideoPreviewProps) {
   const playerRef = useRef<PlayerRef>(null);
-  const [isRecording, setIsRecording] = useState(false);
+  const [isRendering, setIsRendering] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
-  const [recordingProgress, setRecordingProgress] = useState(0);
+  const [renderProgress, setRenderProgress] = useState(0);
+  const [renderError, setRenderError] = useState<string | null>(null);
 
-  const handleDownload = useCallback(async () => {
-    const player = playerRef.current;
-    if (!player) return;
-
-    // Find the player container's canvas/video element
-    const container = (player as unknown as { getContainerNode: () => HTMLDivElement }).getContainerNode();
-    if (!container) return;
-
-    setIsRecording(true);
+  const handleRenderDownload = useCallback(async () => {
+    setIsRendering(true);
     setDownloadUrl(null);
-    setRecordingProgress(0);
+    setRenderError(null);
+    setRenderProgress(10);
 
-    // Seek to start
-    player.seekTo(0);
-    player.pause();
+    try {
+      const formData = new FormData();
 
-    // We'll capture by playing and recording the visible element
-    const playerElement = container.querySelector("iframe");
-    const targetElement = playerElement?.contentDocument?.body || container;
-
-    // Use a canvas-based approach to capture frames
-    const fps = 30;
-    const totalFrames = 600;
-    const canvas = document.createElement("canvas");
-    canvas.width = 1080;
-    canvas.height = 1920;
-
-    const stream = canvas.captureStream(fps);
-    const mediaRecorder = new MediaRecorder(stream, {
-      mimeType: "video/webm;codecs=vp9",
-      videoBitsPerSecond: 8_000_000,
-    });
-
-    const chunks: Blob[] = [];
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-
-    mediaRecorder.onstop = () => {
-      const blob = new Blob(chunks, { type: "video/webm" });
-      const url = URL.createObjectURL(blob);
-      setDownloadUrl(url);
-      setIsRecording(false);
-      setRecordingProgress(100);
-    };
-
-    mediaRecorder.start();
-
-    // Play through and capture each frame
-    const ctx = canvas.getContext("2d")!;
-
-    for (let frame = 0; frame < totalFrames; frame++) {
-      player.seekTo(frame);
-
-      // Wait for frame to render
-      await new Promise((r) => setTimeout(r, 50));
-
-      // Capture the player container to canvas
-      try {
-        // Try to use html2canvas-like approach via drawImage on video elements
-        const videoElements = container.querySelectorAll("video");
-        if (videoElements.length > 0) {
-          ctx.fillStyle = "#000";
-          ctx.fillRect(0, 0, 1080, 1920);
-          videoElements.forEach((vid) => {
-            try {
-              ctx.drawImage(vid, 0, 0, 1080, 1920);
-            } catch {
-              // Cross-origin video, skip
-            }
-          });
-        } else {
-          ctx.fillStyle = "#000";
-          ctx.fillRect(0, 0, 1080, 1920);
+      // Append video files
+      for (const slot of slots) {
+        if (slot.file) {
+          formData.append(slot.id, slot.file);
         }
-      } catch {
-        // Fallback: draw black frame
-        ctx.fillStyle = "#000";
-        ctx.fillRect(0, 0, 1080, 1920);
       }
 
-      setRecordingProgress(Math.round((frame / totalFrames) * 100));
-    }
+      // Append music file
+      if (audio.file) {
+        formData.append("music", audio.file);
+      }
 
-    mediaRecorder.stop();
-  }, []);
+      // Append scene texts
+      formData.append("sceneTexts", JSON.stringify(sceneTexts));
+
+      setRenderProgress(20);
+
+      const response = await fetch("/api/render", {
+        method: "POST",
+        body: formData,
+      });
+
+      setRenderProgress(80);
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.details || "Render failed");
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      setDownloadUrl(url);
+      setRenderProgress(100);
+    } catch (error) {
+      setRenderError(String(error));
+    } finally {
+      setIsRendering(false);
+    }
+  }, [slots, audio, sceneTexts]);
 
   const triggerFileDownload = useCallback(() => {
     if (!downloadUrl) return;
     const a = document.createElement("a");
     a.href = downloadUrl;
-    a.download = "promotional-video.webm";
+    a.download = "promotional-video.mp4";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -174,36 +141,45 @@ export default function VideoPreview({
             </div>
             <div>
               <h3 className="text-sm font-semibold text-white">
-                Video Ready
+                Download as MP4
               </h3>
               <p className="text-xs text-zinc-500">
-                Download your promotional video
+                Server-side render via Remotion — H.264, 1080x1920
               </p>
             </div>
           </div>
 
-          {isRecording && (
+          {/* Progress bar */}
+          {isRendering && (
             <div className="flex flex-col gap-2">
               <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
                 <div
-                  className="h-full rounded-full bg-blue-500 transition-all duration-300"
-                  style={{ width: `${recordingProgress}%` }}
+                  className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                  style={{ width: `${renderProgress}%` }}
                 />
               </div>
               <span className="text-xs text-zinc-500">
-                Rendering... {recordingProgress}%
+                Rendering MP4... {renderProgress}%
               </span>
             </div>
           )}
 
+          {/* Error */}
+          {renderError && (
+            <div className="rounded-xl bg-red-500/10 p-3 text-xs text-red-400">
+              {renderError}
+            </div>
+          )}
+
+          {/* Buttons */}
           <div className="flex gap-3">
             {!downloadUrl ? (
               <button
-                onClick={handleDownload}
-                disabled={isRecording}
+                onClick={handleRenderDownload}
+                disabled={isRendering}
                 className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 text-sm font-semibold text-white transition-colors hover:bg-green-500 disabled:opacity-50"
               >
-                {isRecording ? (
+                {isRendering ? (
                   <>
                     <svg
                       className="h-4 w-4 animate-spin"
@@ -226,7 +202,7 @@ export default function VideoPreview({
                         className="opacity-75"
                       />
                     </svg>
-                    Rendering Video...
+                    Rendering MP4...
                   </>
                 ) : (
                   <>
@@ -242,7 +218,7 @@ export default function VideoPreview({
                       <polyline points="7 10 12 15 17 10" />
                       <line x1="12" y1="15" x2="12" y2="3" />
                     </svg>
-                    Render & Download
+                    Render & Download MP4
                   </>
                 )}
               </button>
@@ -264,13 +240,14 @@ export default function VideoPreview({
                     <polyline points="7 10 12 15 17 10" />
                     <line x1="12" y1="15" x2="12" y2="3" />
                   </svg>
-                  Download .webm
+                  Download .mp4
                 </button>
                 <button
                   onClick={() => {
                     if (downloadUrl) URL.revokeObjectURL(downloadUrl);
                     setDownloadUrl(null);
-                    setRecordingProgress(0);
+                    setRenderProgress(0);
+                    setRenderError(null);
                   }}
                   className="flex h-12 items-center justify-center gap-2 rounded-xl border border-white/10 px-5 text-sm font-medium text-zinc-400 transition-colors hover:bg-white/5"
                 >
@@ -279,13 +256,6 @@ export default function VideoPreview({
               </>
             )}
           </div>
-
-          <p className="text-xs text-zinc-600">
-            For production-quality MP4 output, use Remotion CLI:{" "}
-            <code className="rounded bg-white/5 px-1.5 py-0.5 text-zinc-400">
-              npx remotion render PromotionalVideo output.mp4
-            </code>
-          </p>
         </div>
       )}
     </div>
