@@ -189,7 +189,7 @@ export default function VideoPreview({
     if (!downloadUrl) return;
     const a = document.createElement("a");
     a.href = downloadUrl;
-    a.download = "promotional-video.mp4";
+    a.download = "promotional-video.webm";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -351,7 +351,7 @@ export default function VideoPreview({
                     <polyline points="7 10 12 15 17 10" />
                     <line x1="12" y1="15" x2="12" y2="3" />
                   </svg>
-                  Download Video
+                  Download .webm
                 </button>
                 <button
                   onClick={() => {
