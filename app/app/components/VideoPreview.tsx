@@ -2,13 +2,19 @@
 
 import { Player } from "@remotion/player";
 import { PromotionalVideo } from "../remotion/PromotionalVideo";
-import type { PromotionalVideoProps } from "../remotion/types";
+import type { PromotionalVideoProps, SceneText } from "../remotion/types";
 
 interface VideoPreviewProps {
   videos: PromotionalVideoProps["videos"];
+  musicUrl: string | null;
+  sceneTexts: SceneText[];
 }
 
-export default function VideoPreview({ videos }: VideoPreviewProps) {
+export default function VideoPreview({
+  videos,
+  musicUrl,
+  sceneTexts,
+}: VideoPreviewProps) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3">
@@ -19,7 +25,7 @@ export default function VideoPreview({ videos }: VideoPreviewProps) {
       <div className="overflow-hidden rounded-2xl border border-white/10 bg-black">
         <Player
           component={PromotionalVideo}
-          inputProps={{ videos }}
+          inputProps={{ videos, musicUrl, sceneTexts }}
           durationInFrames={600}
           fps={30}
           compositionWidth={1080}
@@ -34,10 +40,11 @@ export default function VideoPreview({ videos }: VideoPreviewProps) {
         />
       </div>
 
-      <div className="flex items-center gap-4 text-sm text-zinc-500">
+      <div className="flex flex-wrap items-center gap-4 text-sm text-zinc-500">
         <span>1080 x 1920</span>
         <span>30fps</span>
         <span>20s (4 x 5s scenes)</span>
+        {musicUrl && <span className="text-emerald-500">+ BGM</span>}
       </div>
     </div>
   );
