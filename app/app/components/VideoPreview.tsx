@@ -615,6 +615,30 @@ export default function VideoPreview({
               </>
             )}
           </div>
+
+          {/* Note */}
+          <div className="flex gap-2.5 rounded-xl bg-yellow-500/5 border border-yellow-500/10 p-3.5">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="mt-0.5 shrink-0 text-yellow-500/70"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+            <p className="text-xs leading-relaxed text-zinc-500">
+              <span className="font-medium text-zinc-400">Client-side rendering</span>{" "}
+              — This demo renders video in your browser due to Vercel serverless
+              limitations. In production, this will be replaced with server-side
+              rendering using Remotion&apos;s <code className="rounded bg-white/5 px-1 py-0.5 text-zinc-400">renderMedia()</code> API
+              for higher quality, faster output, and full 1080x1920 resolution.
+            </p>
+          </div>
         </div>
       )}
     </div>
