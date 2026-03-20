@@ -11,36 +11,32 @@ export const maxDuration = 300; // 5 minutes timeout
 export async function POST(req: NextRequest) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "remotion-render-"));
   const outputPath = path.join(tmpDir, "output.mp4");
+  let bundlePath: string | null = null;
 
   try {
     const formData = await req.formData();
 
-    // Save uploaded files to temp directory
-    const videoUrls: Record<string, string | null> = {
-      destination1: null,
-      destination2: null,
-      destination3: null,
-      destination4: null,
-    };
+    // Save uploaded files to temp directory first
+    const savedFiles: Record<string, string> = {};
 
-    for (const key of Object.keys(videoUrls)) {
+    for (const key of ["destination1", "destination2", "destination3", "destination4"]) {
       const file = formData.get(key) as File | null;
       if (file && file.size > 0) {
         const buffer = Buffer.from(await file.arrayBuffer());
-        const filePath = path.join(tmpDir, `${key}${getExtension(file.name)}`);
+        const fileName = `${key}${getExtension(file.name)}`;
+        const filePath = path.join(tmpDir, fileName);
         fs.writeFileSync(filePath, buffer);
-        videoUrls[key] = filePath;
+        savedFiles[key] = fileName;
       }
     }
 
     // Save music file
-    let musicUrl: string | null = null;
+    let musicFileName: string | null = null;
     const musicFile = formData.get("music") as File | null;
     if (musicFile && musicFile.size > 0) {
       const buffer = Buffer.from(await musicFile.arrayBuffer());
-      const musicPath = path.join(tmpDir, `music${getExtension(musicFile.name)}`);
-      fs.writeFileSync(musicPath, buffer);
-      musicUrl = musicPath;
+      musicFileName = `music${getExtension(musicFile.name)}`;
+      fs.writeFileSync(path.join(tmpDir, musicFileName), buffer);
     }
 
     // Parse scene texts
@@ -48,20 +44,52 @@ export async function POST(req: NextRequest) {
     const sceneTexts = JSON.parse(sceneTextsRaw);
 
     // Bundle the Remotion project
-    const bundlePath = await bundle({
+    bundlePath = await bundle({
       entryPoint: path.resolve(process.cwd(), "remotion/index.ts"),
       webpackOverride: (config) => config,
+      publicDir: null,
     });
+
+    // Copy uploaded files INTO the bundle directory so Remotion's
+    // HTTP server can serve them at /assets/<filename>
+    const assetsDir = path.join(bundlePath, "assets");
+    fs.mkdirSync(assetsDir, { recursive: true });
+
+    for (const [key, fileName] of Object.entries(savedFiles)) {
+      fs.copyFileSync(
+        path.join(tmpDir, fileName),
+        path.join(assetsDir, fileName)
+      );
+    }
+
+    if (musicFileName) {
+      fs.copyFileSync(
+        path.join(tmpDir, musicFileName),
+        path.join(assetsDir, musicFileName)
+      );
+    }
+
+    // Build video URLs relative to the bundle (served via HTTP)
+    const videoUrls: Record<string, string | null> = {
+      destination1: savedFiles.destination1 ? `/assets/${savedFiles.destination1}` : null,
+      destination2: savedFiles.destination2 ? `/assets/${savedFiles.destination2}` : null,
+      destination3: savedFiles.destination3 ? `/assets/${savedFiles.destination3}` : null,
+      destination4: savedFiles.destination4 ? `/assets/${savedFiles.destination4}` : null,
+    };
+
+    const musicUrl = musicFileName ? `/assets/${musicFileName}` : null;
+
+    const inputProps = {
+      videos: videoUrls,
+      musicUrl,
+      sceneTexts,
+    };
 
     // Select the composition
     const composition = await selectComposition({
       serveUrl: bundlePath,
       id: "PromotionalVideo",
-      inputProps: {
-        videos: videoUrls,
-        musicUrl,
-        sceneTexts,
-      },
+      inputProps,
     });
 
     // Render to MP4
@@ -70,18 +98,14 @@ export async function POST(req: NextRequest) {
       serveUrl: bundlePath,
       codec: "h264",
       outputLocation: outputPath,
-      inputProps: {
-        videos: videoUrls,
-        musicUrl,
-        sceneTexts,
-      },
+      inputProps,
     });
 
     // Read the rendered file and return it
     const videoBuffer = fs.readFileSync(outputPath);
 
     // Cleanup
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    cleanup(tmpDir, bundlePath);
 
     return new NextResponse(videoBuffer, {
       headers: {
@@ -91,16 +115,20 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    // Cleanup on error
-    try {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {}
+    cleanup(tmpDir, bundlePath);
 
     console.error("Render error:", error);
     return NextResponse.json(
       { error: "Failed to render video", details: String(error) },
       { status: 500 }
     );
+  }
+}
+
+function cleanup(tmpDir: string, bundlePath: string | null) {
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  if (bundlePath) {
+    try { fs.rmSync(bundlePath, { recursive: true, force: true }); } catch {}
   }
 }
 
